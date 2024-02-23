@@ -2,12 +2,14 @@ package jwt
 
 import (
 	"crypto/rsa"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	jwtgo "github.com/golang-jwt/jwt"
+	"golang.org/x/crypto/blake2b"
 )
 
 var (
@@ -287,32 +290,47 @@ func validateAWSJwtClaims(claims jwtgo.MapClaims, region, userPoolID string) err
 	return nil
 }
 
+var ErrInvalidClaim = errors.New("invalid claim")
+
 func validateClaimItem(key string, keyShouldBe []string, claims jwtgo.MapClaims) error {
 	if val, ok := claims[key]; ok {
 		if valStr, ok := val.(string); ok {
 			for _, shouldbe := range keyShouldBe {
-				if valStr == shouldbe {
+				// Convert to hash to ensure equal length of each comparable.
+				// This is vital for subtle.ConstantTimeCompare() function.
+				// Also prevents timing attack guesses against str -> []byte conversion.
+				a := blake2b.Sum384([]byte(valStr))
+				b := blake2b.Sum384([]byte(shouldbe))
+				if subtle.ConstantTimeCompare(a[:], b[:]) == 1 {
 					return nil
 				}
 			}
 		}
 	}
-	return fmt.Errorf("%v does not match any of valid values: %v", key, keyShouldBe)
+	return fmt.Errorf("%w: %q does not match any of valid values: %v", ErrInvalidClaim, key, keyShouldBe)
 }
+
+var (
+	ErrExpiredToken = errors.New("expired token")
+	ErrParseToken   = errors.New("cannot parse token exp")
+)
 
 func validateExpired(claims jwtgo.MapClaims) error {
 	if tokenExp, ok := claims["exp"]; ok {
 		if exp, ok := tokenExp.(float64); ok {
-			now := time.Now().Unix()
-			fmt.Printf("current unixtime : %v\n", now)
-			fmt.Printf("expire unixtime  : %v\n", int64(exp))
-			if int64(exp) > now {
+			now := int(time.Now().Unix())
+			// Convert user input to a natural number since behavior of
+			// subtle.ConstantTimeLessOrEq() is undefined with negative numbers
+			absExp := int(math.Abs(exp))
+			// This function is prone to year 2038 problem but at least
+			// it's protecting against timing attacks
+			if subtle.ConstantTimeLessOrEq(now, absExp) == 1 {
 				return nil
 			}
+			return ErrExpiredToken
 		}
-		return errors.New("cannot parse token exp")
 	}
-	return errors.New("token is expired")
+	return ErrParseToken
 }
 
 func convertKey(rawE, rawN string) *rsa.PublicKey {

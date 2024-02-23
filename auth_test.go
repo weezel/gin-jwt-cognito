@@ -1,11 +1,15 @@
 package jwt
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	jwtgo "github.com/golang-jwt/jwt"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -78,4 +82,93 @@ func ginHandler(auth *AuthMiddleware) *gin.Engine {
 
 func testHandler(c *gin.Context) {
 	c.JSON(200, "success")
+}
+
+func Test_validateClaimItem(t *testing.T) {
+	type args struct {
+		key         string
+		claims      jwtgo.MapClaims
+		keyShouldBe []string
+	}
+	tests := []struct {
+		name        string
+		expectedErr error
+		args        args
+	}{
+		{
+			name: "Contains valid item",
+			args: args{
+				key:         "mykey",
+				keyShouldBe: []string{"not_valid", "valid"},
+				claims: map[string]interface{}{
+					"mykey": "valid",
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "Doesn't contain valid key",
+			args: args{
+				key:         "mykey",
+				keyShouldBe: []string{"not_valid", "still_not_valid"},
+				claims: map[string]interface{}{
+					"mykew": "i typoead",
+				},
+			},
+			expectedErr: ErrInvalidClaim,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateClaimItem(tt.args.key, tt.args.keyShouldBe, tt.args.claims)
+			if err != nil && !errors.Is(err, tt.expectedErr) {
+				t.Errorf("validateClaimItem() got error = %v, expected = %v", err, tt.expectedErr)
+			}
+		})
+	}
+}
+
+func Test_validateExpired(t *testing.T) {
+	type args struct {
+		claims jwtgo.MapClaims
+	}
+	tests := []struct {
+		args        args
+		expectedErr error
+		name        string
+	}{
+		{
+			name: "Valid token",
+			args: args{
+				claims: map[string]interface{}{
+					"exp": float64(time.Now().Unix() + 1000),
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "Expired token",
+			args: args{
+				claims: map[string]interface{}{
+					"exp": float64(time.Now().Unix() - 1000),
+				},
+			},
+			expectedErr: ErrExpiredToken,
+		},
+		{
+			name: "Token not found",
+			args: args{
+				claims: map[string]interface{}{},
+			},
+			expectedErr: ErrParseToken,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateExpired(tt.args.claims)
+			if err != nil && !errors.Is(err, tt.expectedErr) {
+				t.Errorf("validateExpired() got error = %v, expected = %v", err, tt.expectedErr)
+			}
+		})
+	}
 }
