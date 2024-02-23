@@ -1,12 +1,11 @@
 package jwt_test
 
 import (
-	jwt "github.com/akhettar/gin-jwt-cognito"
 	"github.com/gin-gonic/gin"
+	jwt "github.com/weezel/gin-jwt-cognito"
 )
 
 func ExampleAuthMiddleware() {
-
 	// Creates a gin router with default middleware:
 	router := gin.Default()
 
