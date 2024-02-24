@@ -21,11 +21,11 @@ import (
 )
 
 var (
-	// AuthHeaderEmptyError thrown when an empty Authorization header is received
-	AuthHeaderEmptyError = errors.New("auth header empty")
+	// ErrAuthHeaderEmpty thrown when an empty Authorization header is received
+	ErrAuthHeaderEmpty = errors.New("auth header empty")
 
-	// InvalidAuthHeaderError thrown when an invalid Authorization header is received
-	InvalidAuthHeaderError = errors.New("invalid auth header")
+	// ErrInvalidAuthHeader thrown when an invalid Authorization header is received
+	ErrInvalidAuthHeader = errors.New("invalid auth header")
 )
 
 const (
@@ -155,7 +155,7 @@ func (mw *AuthMiddleware) jwtFromHeader(c *gin.Context, key string) (string, err
 	authHeader := c.Request.Header.Get(key)
 
 	if authHeader == "" {
-		return "", AuthHeaderEmptyError
+		return "", ErrAuthHeaderEmpty
 	}
 	return authHeader, nil
 }
