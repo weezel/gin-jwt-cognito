@@ -29,11 +29,11 @@ var (
 )
 
 const (
-	// AuthenticateHeader the Gin authenticate header
-	AuthenticateHeader = "WWW-Authenticate"
+	// HeaderAuthenticate the Gin authenticate header
+	HeaderAuthenticate = "WWW-Authenticate"
 
-	// AuthorizationHeader the auth header that gets passed to all services
-	AuthorizationHeader = "Authorization"
+	// HeaderAuthorization the auth header that gets passed to all services
+	HeaderAuthorization = "Authorization"
 
 	// Forward slash character
 	ForwardSlash = "/"
@@ -101,7 +101,7 @@ type AuthError struct {
 // MiddlewareInit initialize jwt configs.
 func (mw *AuthMiddleware) MiddlewareInit() {
 	if mw.TokenLookup == "" {
-		mw.TokenLookup = "header:" + AuthorizationHeader
+		mw.TokenLookup = "header:" + HeaderAuthorization
 	}
 
 	if mw.Timeout == 0 {
@@ -164,7 +164,7 @@ func (mw *AuthMiddleware) unauthorized(c *gin.Context, code int, message string)
 	if mw.Realm == "" {
 		mw.Realm = "gin jwt"
 	}
-	c.Header(AuthenticateHeader, "JWT realm="+mw.Realm)
+	c.Header(HeaderAuthenticate, "JWT realm="+mw.Realm)
 	c.Abort()
 
 	mw.Unauthorized(c, code, message)
@@ -198,7 +198,7 @@ func AuthJWTMiddleware(iss, userPoolID, region string) (*AuthMiddleware, error) 
 		},
 
 		// Token header
-		TokenLookup: "header:" + AuthorizationHeader,
+		TokenLookup: "header:" + HeaderAuthorization,
 		TimeFunc:    time.Now,
 		JWK:         jwk,
 		Iss:         iss,

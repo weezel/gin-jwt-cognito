@@ -26,7 +26,7 @@ func Test_MissingAuthorizationHeader(t *testing.T) {
 			Header: http.Header{},
 		},
 	}
-	_, err := middleware.jwtFromHeader(&ctx, AuthorizationHeader)
+	_, err := middleware.jwtFromHeader(&ctx, HeaderAuthorization)
 	if err == nil {
 		t.Errorf("Error must not be nil")
 	}
@@ -52,7 +52,7 @@ func Test_CognitoTokenExpiredShouldResultInUnauthorisedError(t *testing.T) {
 
 func performRequest(r http.Handler, method, path string, token string) *httptest.ResponseRecorder {
 	headers := http.Header{}
-	headers.Add(AuthorizationHeader, token)
+	headers.Add(HeaderAuthorization, token)
 	req, _ := http.NewRequest(method, path, nil)
 	req.Header = headers
 
