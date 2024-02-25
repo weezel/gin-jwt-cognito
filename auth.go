@@ -33,7 +33,7 @@ const (
 	AuthenticateHeader = "WWW-Authenticate"
 
 	// AuthorizationHeader the auth header that gets passed to all services
-	AuthorizationHeader = "Authentication"
+	AuthorizationHeader = "Authorization"
 
 	// Forward slash character
 	ForwardSlash = "/"
