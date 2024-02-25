@@ -2,35 +2,38 @@ package jwt
 
 import (
 	"crypto/rsa"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	jwtgo "github.com/golang-jwt/jwt"
-	"github.com/gin-gonic/gin"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	jwtgo "github.com/golang-jwt/jwt/v4"
+	"golang.org/x/crypto/blake2b"
 )
 
 var (
-	// AuthHeaderEmptyError thrown when an empty Authorization header is received
-	AuthHeaderEmptyError = errors.New("auth header empty")
+	// ErrAuthHeaderEmpty thrown when an empty Authorization header is received
+	ErrAuthHeaderEmpty = errors.New("auth header empty")
 
-	// InvalidAuthHeaderError thrown when an invalid Authorization header is received
-	InvalidAuthHeaderError = errors.New("invalid auth header")
+	// ErrInvalidAuthHeader thrown when an invalid Authorization header is received
+	ErrInvalidAuthHeader = errors.New("invalid auth header")
 )
 
 const (
+	// HeaderAuthenticate the Gin authenticate header
+	HeaderAuthenticate = "WWW-Authenticate"
 
-	// AuthenticateHeader the Gin authenticate header
-	AuthenticateHeader = "WWW-Authenticate"
-
-	// AuthorizationHeader the auth header that gets passed to all services
-	AuthorizationHeader = "Authentication"
+	// HeaderAuthorization the auth header that gets passed to all services
+	HeaderAuthorization = "Authorization"
 
 	// Forward slash character
 	ForwardSlash = "/"
@@ -44,7 +47,6 @@ const (
 
 // AuthMiddleware middleware
 type AuthMiddleware struct {
-
 	// User can define own Unauthorized func.
 	Unauthorized func(*gin.Context, int, string)
 
@@ -93,14 +95,13 @@ type JWKKey struct {
 // AuthError auth error response
 type AuthError struct {
 	Message string `json:"message"`
-	Code    int    `json:code`
+	Code    int    `json:"code"`
 }
 
 // MiddlewareInit initialize jwt configs.
 func (mw *AuthMiddleware) MiddlewareInit() {
-
 	if mw.TokenLookup == "" {
-		mw.TokenLookup = "header:" + AuthorizationHeader
+		mw.TokenLookup = "header:" + HeaderAuthorization
 	}
 
 	if mw.Timeout == 0 {
@@ -123,7 +124,6 @@ func (mw *AuthMiddleware) MiddlewareInit() {
 }
 
 func (mw *AuthMiddleware) middlewareImpl(c *gin.Context) {
-
 	// Parse the given token
 	var tokenStr string
 	var err error
@@ -141,7 +141,6 @@ func (mw *AuthMiddleware) middlewareImpl(c *gin.Context) {
 	}
 
 	token, err := mw.parse(tokenStr)
-
 	if err != nil {
 		log.Printf("JWT token Parser error: %s", err.Error())
 		mw.unauthorized(c, http.StatusUnauthorized, err.Error())
@@ -156,7 +155,7 @@ func (mw *AuthMiddleware) jwtFromHeader(c *gin.Context, key string) (string, err
 	authHeader := c.Request.Header.Get(key)
 
 	if authHeader == "" {
-		return "", AuthHeaderEmptyError
+		return "", ErrAuthHeaderEmpty
 	}
 	return authHeader, nil
 }
@@ -165,11 +164,10 @@ func (mw *AuthMiddleware) unauthorized(c *gin.Context, code int, message string)
 	if mw.Realm == "" {
 		mw.Realm = "gin jwt"
 	}
-	c.Header(AuthenticateHeader, "JWT realm="+mw.Realm)
+	c.Header(HeaderAuthenticate, "JWT realm="+mw.Realm)
 	c.Abort()
 
 	mw.Unauthorized(c, code, message)
-	return
 }
 
 // MiddlewareFunc implements the Middleware interface.
@@ -178,15 +176,16 @@ func (mw *AuthMiddleware) MiddlewareFunc() gin.HandlerFunc {
 	mw.MiddlewareInit()
 	return func(c *gin.Context) {
 		mw.middlewareImpl(c)
-		return
 	}
 }
 
 // AuthJWTMiddleware create an instance of the middle ware function
 func AuthJWTMiddleware(iss, userPoolID, region string) (*AuthMiddleware, error) {
-
 	// Download the public json web key for the given user pool ID at the start of the plugin
-	jwk, err := getJWK(fmt.Sprintf("https://cognito-idp.%v.amazonaws.com/%v/.well-known/jwks.json", region, userPoolID))
+	jwk, err := getJWK(fmt.Sprintf("https://cognito-idp.%v.amazonaws.com/%v/.well-known/jwks.json",
+		region,
+		userPoolID,
+	))
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +198,7 @@ func AuthJWTMiddleware(iss, userPoolID, region string) (*AuthMiddleware, error) 
 		},
 
 		// Token header
-		TokenLookup: "header:" + AuthorizationHeader,
+		TokenLookup: "header:" + HeaderAuthorization,
 		TimeFunc:    time.Now,
 		JWK:         jwk,
 		Iss:         iss,
@@ -210,10 +209,8 @@ func AuthJWTMiddleware(iss, userPoolID, region string) (*AuthMiddleware, error) 
 }
 
 func (mw *AuthMiddleware) parse(tokenStr string) (*jwtgo.Token, error) {
-
 	// 1. Decode the token string into JWT format.
 	token, err := jwtgo.Parse(tokenStr, func(token *jwtgo.Token) (interface{}, error) {
-
 		// cognito user pool : RS256
 		if _, ok := token.Method.(*jwtgo.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -232,7 +229,6 @@ func (mw *AuthMiddleware) parse(tokenStr string) (*jwtgo.Token, error) {
 		// rsa public key
 		return "", nil
 	})
-
 	if err != nil {
 		return token, err
 	}
@@ -294,32 +290,47 @@ func validateAWSJwtClaims(claims jwtgo.MapClaims, region, userPoolID string) err
 	return nil
 }
 
+var ErrInvalidClaim = errors.New("invalid claim")
+
 func validateClaimItem(key string, keyShouldBe []string, claims jwtgo.MapClaims) error {
 	if val, ok := claims[key]; ok {
 		if valStr, ok := val.(string); ok {
 			for _, shouldbe := range keyShouldBe {
-				if valStr == shouldbe {
+				// Convert to hash to ensure equal length of each comparable.
+				// This is vital for subtle.ConstantTimeCompare() function.
+				// Also prevents timing attack guesses against str -> []byte conversion.
+				a := blake2b.Sum384([]byte(valStr))
+				b := blake2b.Sum384([]byte(shouldbe))
+				if subtle.ConstantTimeCompare(a[:], b[:]) == 1 {
 					return nil
 				}
 			}
 		}
 	}
-	return fmt.Errorf("%v does not match any of valid values: %v", key, keyShouldBe)
+	return fmt.Errorf("%w: %q does not match any of valid values: %v", ErrInvalidClaim, key, keyShouldBe)
 }
+
+var (
+	ErrExpiredToken = errors.New("expired token")
+	ErrParseToken   = errors.New("cannot parse token exp")
+)
 
 func validateExpired(claims jwtgo.MapClaims) error {
 	if tokenExp, ok := claims["exp"]; ok {
 		if exp, ok := tokenExp.(float64); ok {
-			now := time.Now().Unix()
-			fmt.Printf("current unixtime : %v\n", now)
-			fmt.Printf("expire unixtime  : %v\n", int64(exp))
-			if int64(exp) > now {
+			now := int(time.Now().Unix())
+			// Convert user input to a natural number since behavior of
+			// subtle.ConstantTimeLessOrEq() is undefined with negative numbers
+			absExp := int(math.Abs(exp))
+			// This function is prone to year 2038 problem but at least
+			// it's protecting against timing attacks
+			if subtle.ConstantTimeLessOrEq(now, absExp) == 1 {
 				return nil
 			}
+			return ErrExpiredToken
 		}
-		return errors.New("cannot parse token exp")
 	}
-	return errors.New("token is expired")
+	return ErrParseToken
 }
 
 func convertKey(rawE, rawN string) *rsa.PublicKey {
@@ -334,7 +345,7 @@ func convertKey(rawE, rawN string) *rsa.PublicKey {
 	}
 	pubKey := &rsa.PublicKey{
 		N: &big.Int{},
-		E: int(binary.BigEndian.Uint32(decodedE[:])),
+		E: int(binary.BigEndian.Uint32(decodedE)),
 	}
 	decodedN, err := base64.RawURLEncoding.DecodeString(rawN)
 	if err != nil {
@@ -349,7 +360,7 @@ func getJWK(jwkURL string) (map[string]JWKKey, error) {
 	Info.Printf("Downloading the jwk from the given url %s", jwkURL)
 	jwk := &JWK{}
 
-	var myClient = &http.Client{Timeout: 10 * time.Second}
+	myClient := &http.Client{Timeout: 10 * time.Second}
 	r, err := myClient.Get(jwkURL)
 	if err != nil {
 		return nil, err
