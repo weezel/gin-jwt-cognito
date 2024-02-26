@@ -20,14 +20,6 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-var (
-	// ErrAuthHeaderEmpty thrown when an empty Authorization header is received
-	ErrAuthHeaderEmpty = errors.New("auth header empty")
-
-	// ErrInvalidAuthHeader thrown when an invalid Authorization header is received
-	ErrInvalidAuthHeader = errors.New("invalid auth header")
-)
-
 const (
 	// HeaderAuthenticate the Gin authenticate header
 	HeaderAuthenticate = "WWW-Authenticate"
@@ -40,9 +32,27 @@ const (
 
 	// Header used by the JWT middle ware
 	Header = "header"
+)
 
-	// IssuerFieldName the issuer field name
-	IssuerFieldName = "iss"
+type RegisteredClaim string
+
+func (r RegisteredClaim) String() string {
+	return string(r)
+}
+
+// Issuer the issuer field name
+const (
+	Issuer         RegisteredClaim = "iss"
+	ExpirationTime RegisteredClaim = "exp"
+	Subject        RegisteredClaim = "sub"
+	Audience       RegisteredClaim = "aud"
+)
+
+var (
+	// ErrAuthHeaderEmpty thrown when an empty Authorization header is received
+	ErrAuthHeaderEmpty = errors.New("auth header empty")
+	// ErrInvalidAuthHeader thrown when an invalid Authorization header is received
+	ErrInvalidAuthHeader = errors.New("invalid auth header")
 )
 
 // AuthMiddleware middleware
@@ -235,7 +245,7 @@ func (mw *AuthMiddleware) parse(tokenStr string) (*jwtgo.Token, error) {
 
 	claims := token.Claims.(jwtgo.MapClaims)
 
-	iss, ok := claims["iss"]
+	iss, ok := claims[Issuer.String()]
 	if !ok {
 		return token, fmt.Errorf("token does not contain issuer")
 	}
@@ -316,7 +326,7 @@ var (
 )
 
 func validateExpired(claims jwtgo.MapClaims) error {
-	if tokenExp, ok := claims["exp"]; ok {
+	if tokenExp, ok := claims[ExpirationTime.String()]; ok {
 		if exp, ok := tokenExp.(float64); ok {
 			now := int(time.Now().Unix())
 			// Convert user input to a natural number since behavior of
