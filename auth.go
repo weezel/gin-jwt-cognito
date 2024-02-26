@@ -38,8 +38,8 @@ const (
 	// Forward slash character
 	ForwardSlash = "/"
 
-	// HEADER used by the JWT middle ware
-	HEADER = "header"
+	// Header used by the JWT middle ware
+	Header = "header"
 
 	// IssuerFieldName the issuer field name
 	IssuerFieldName = "iss"
@@ -130,7 +130,7 @@ func (mw *AuthMiddleware) middlewareImpl(c *gin.Context) {
 
 	parts := strings.Split(mw.TokenLookup, ":")
 	switch parts[0] {
-	case HEADER:
+	case Header:
 		tokenStr, err = mw.jwtFromHeader(c, parts[1])
 	}
 
