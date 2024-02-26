@@ -77,19 +77,19 @@ type AuthMiddleware struct {
 	JWK map[string]JWKKey
 }
 
-// JWK is json data struct for JSON Web Key
-type JWK struct {
-	Keys []JWKKey
-}
-
 // JWKKey is json data struct for cognito jwk key
 type JWKKey struct {
 	Alg string
 	E   string
-	Kid string
-	Kty string
+	Kid string // Key ID
+	Kty string // Key type
 	N   string
-	Use string
+	Use string // Key usage
+}
+
+// JWKS is json data struct for JSON Web Key
+type JWKS struct {
+	Keys []JWKKey
 }
 
 // AuthError auth error response
@@ -358,7 +358,7 @@ func convertKey(rawE, rawN string) *rsa.PublicKey {
 // Download the json web public key for the given user pool id
 func getJWK(jwkURL string) (map[string]JWKKey, error) {
 	Info.Printf("Downloading the jwk from the given url %s", jwkURL)
-	jwk := &JWK{}
+	jwk := &JWKS{}
 
 	myClient := &http.Client{Timeout: 10 * time.Second}
 	r, err := myClient.Get(jwkURL)
