@@ -2,6 +2,8 @@ package jwt
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +17,24 @@ const (
 	//nolint:gosec,lll // This is for testing purposes and okay
 	ExpiredCognitoToken = "eyJraWQiOiJsY2ZiTlVjNm9CYVlrMTlpRGhsVnI2OUk2ZTZcL3hCQTAzakk5SkhiM2lmST0iLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkZDAzODg3OS0xMTA2LTRkZjMtOTFhZS0wM2UwYjc5Zjc4NDMiLCJldmVudF9pZCI6ImY4ZTQ4NGI0LWVmMzEtNDIxNy05NjRmLTNhZWZkM2NlNWZjNSIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXdzLmNvZ25pdG8uc2lnbmluLnVzZXIuYWRtaW4iLCJhdXRoX3RpbWUiOjE1NjM4NzEwMjQsImlzcyI6Imh0dHBzOlwvXC9jb2duaXRvLWlkcC5ldS13ZXN0LTIuYW1hem9uYXdzLmNvbVwvZXUtd2VzdC0yX25VV05zeWx6VCIsImV4cCI6MTU2Mzg3NDYyNCwiaWF0IjoxNTYzODcxMDI0LCJqdGkiOiJhOGYwMmJjMC0xZTM0LTQxMmItYjE3Yi1hMTAyYWM3YTIxNjkiLCJjbGllbnRfaWQiOiI0MjNhNWNjNnRqNWkzYW1kbWgwYXIycmszIiwidXNlcm5hbWUiOiIzYmI3MWUxNS00NjQ5LTQ0MjktYjE3MS1iMjEwNTlhYmQwZjAifQ.KnRZ6gEVwZNRPmULRk9VA7HlhAViOnwMPezakuBHXwNHFieThlJR6y8uMhcVS4bm0Du55PkIjVWkFgl9G1aiRgtd2k6vVtJHw_PPoe6VbvKDuus3ZSyu9NCD4DBF10_dEsEw3CibfrAxislw0-AEGZT_DegZgHWV5rzMBFZYeOJ7ptxpyykQOhkL7NtN1kB7BwBIUKMGw7mUAOGkPXC5RuKNPbUj4FFt-OmQX4-mDYNeQY6zkLrLt9eizf4N1CKR1WjMdeBHUrIgfrXuY1ZGrD9ZQGgEqzT2wZ9ZO3lNtBm1t65sQvvJTfTDwQb1z-dV1yXCravMd28g9fC8Jda9XQ"
 )
+
+func Test_PresentAuthorizationHeader(t *testing.T) {
+	middleware := AuthMiddleware{
+		UserPoolID: "some_user_id_pool",
+		Region:     "some_region",
+	}
+	ctx := gin.Context{
+		Request: &http.Request{
+			Header: http.Header{
+				"Authorization": []string{"Bearer abc"},
+			},
+		},
+	}
+	_, err := middleware.jwtFromHeader(&ctx, HeaderAuthorization)
+	if err != nil {
+		t.Errorf("Invalid auth bearer header: %s", err)
+	}
+}
 
 func Test_MissingAuthorizationHeader(t *testing.T) {
 	middleware := AuthMiddleware{
@@ -162,6 +182,84 @@ func Test_validateExpired(t *testing.T) {
 			err := validateExpired(tt.args.claims)
 			if err != nil && !errors.Is(err, tt.expectedErr) {
 				t.Errorf("validateExpired() got error = %v, expected = %v", err, tt.expectedErr)
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware_jwtFromHeader(t *testing.T) {
+	token := jwtgo.NewWithClaims(
+		jwtgo.SigningMethodHS256,
+		jwtgo.MapClaims{
+			Issuer.String():         "bar",
+			ExpirationTime.String(): time.Now().String(),
+		},
+	)
+	hmacSecret := []byte("yippee")
+	signedToken, err := token.SignedString(hmacSecret)
+	if err != nil {
+		t.Error(err)
+	}
+
+	type args struct {
+		c   *gin.Context
+		key string
+	}
+	tests := []struct {
+		name        string
+		args        args
+		want        string
+		expectedErr error
+	}{
+		{
+			name: "",
+			args: args{
+				c: &gin.Context{
+					Request: &http.Request{
+						Header: http.Header{
+							HeaderAuthorization: []string{HeaderBearer + " " + signedToken},
+						},
+					},
+				},
+				key: HeaderAuthorization,
+			},
+			want:        "",
+			expectedErr: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := &AuthMiddleware{
+				UserPoolID: "TestPool1",
+				Region:     "eu-random-1",
+			}
+			got, err := mw.jwtFromHeader(tt.args.c, tt.args.key)
+			if err != nil && !errors.Is(err, tt.expectedErr) {
+				t.Errorf("AuthMiddleware.jwtFromHeader() got error = %v, expectedErr = %v",
+					err,
+					tt.expectedErr,
+				)
+				return
+			}
+
+			token, err := jwtgo.ParseWithClaims(
+				got,
+				token.Claims,
+				func(token *jwtgo.Token) (any, error) {
+					return []byte("AllYourBase"), nil
+				},
+				nil,
+			)
+			if err != nil {
+				t.Error(err)
+			} else if claims, ok := token.Claims.(any); ok {
+				fmt.Println(claims.Foo, claims.RegisteredClaims.Issuer)
+			} else {
+				log.Fatal("unknown claims type, cannot proceed")
+			}
+
+			if got != tt.want {
+				t.Errorf("AuthMiddleware.jwtFromHeader() got = %v, want = %v", token, tt.want)
 			}
 		})
 	}
