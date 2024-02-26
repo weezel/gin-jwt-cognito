@@ -28,7 +28,7 @@ func Test_MissingAuthorizationHeader(t *testing.T) {
 	}
 	_, err := middleware.jwtFromHeader(&ctx, HeaderAuthorization)
 	if err == nil {
-		t.Errorf("Error must not be nil")
+		t.Errorf("Bail out due to missing auth bearer header: %s", err)
 	}
 	if !errors.Is(err, ErrAuthHeaderEmpty) {
 		t.Error(err)
