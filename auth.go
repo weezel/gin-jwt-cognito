@@ -56,30 +56,21 @@ var (
 type AuthMiddleware struct {
 	// User can define own Unauthorized func.
 	Unauthorized func(*gin.Context, int, string)
-
-	Timeout time.Duration
-
+	Timeout      time.Duration
 	// TokenLookup the header name of the token
 	TokenLookup string
-
 	// TimeFunc
 	TimeFunc func() time.Time
-
 	// Realm name to display to the user. Required.
 	Realm string
-
-	// to verify issuer
+	// To verify issuer
 	VerifyIssuer bool
-
-	// Region aws region
+	// Region AWS region
 	Region string
-
 	// UserPoolID the cognito user pool id
 	UserPoolID string
-
 	// The issuer
-	Iss string
-
+	Issuer string
 	// JWK public JSON Web Key (JWK) for your user pool
 	JWK map[string]JWKKey
 }
@@ -136,25 +127,27 @@ func (mw *AuthMiddleware) middlewareImpl(c *gin.Context) {
 	var err error
 
 	parts := strings.Split(mw.TokenLookup, ":")
-	switch parts[0] {
-	case Header:
-		tokenStr, err = mw.jwtFromHeader(c, parts[1])
+	if parts[0] != Header {
+		log.Println("Key 'header' not available")
+		mw.unauthorized(c, http.StatusUnauthorized, "Missing header")
+		return
 	}
-
+	tokenStr, err = mw.jwtFromHeader(c, parts[1])
 	if err != nil {
 		log.Printf("JWT token Parser error: %s", err.Error())
-		mw.unauthorized(c, http.StatusUnauthorized, err.Error())
+		mw.unauthorized(c, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	token, err := mw.parse(tokenStr)
 	if err != nil {
 		log.Printf("JWT token Parser error: %s", err.Error())
-		mw.unauthorized(c, http.StatusUnauthorized, err.Error())
+		mw.unauthorized(c, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	c.Set("JWT_TOKEN", token)
+
 	c.Next()
 }
 
@@ -214,7 +207,7 @@ func AuthJWTMiddleware(iss, userPoolID, region string) (*AuthMiddleware, error) 
 		TokenLookup: "header:" + HeaderAuthorization,
 		TimeFunc:    time.Now,
 		JWK:         jwk,
-		Iss:         iss,
+		Issuer:      iss,
 		Region:      region,
 		UserPoolID:  userPoolID,
 	}
