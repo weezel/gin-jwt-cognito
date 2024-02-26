@@ -23,13 +23,10 @@ import (
 const (
 	// HeaderAuthenticate the Gin authenticate header
 	HeaderAuthenticate = "WWW-Authenticate"
-
 	// HeaderAuthorization the auth header that gets passed to all services
 	HeaderAuthorization = "Authorization"
-
-	// Forward slash character
-	ForwardSlash = "/"
-
+	// HeaderBearer authorization header for bearer
+	HeaderBearer = "Bearer"
 	// Header used by the JWT middle ware
 	Header = "header"
 )
@@ -167,7 +164,13 @@ func (mw *AuthMiddleware) jwtFromHeader(c *gin.Context, key string) (string, err
 	if authHeader == "" {
 		return "", ErrAuthHeaderEmpty
 	}
-	return authHeader, nil
+
+	splitted := strings.Split(authHeader, " ")
+	if len(splitted) != 2 || splitted[0] != HeaderBearer {
+		return "", ErrInvalidAuthHeader
+	}
+
+	return splitted[1], nil
 }
 
 func (mw *AuthMiddleware) unauthorized(c *gin.Context, code int, message string) {
